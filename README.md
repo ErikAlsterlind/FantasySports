@@ -1,2 +1,2 @@
 # FantasySports
-Repository for my terrible web scraping scripts that I use for fantasy sports drafting preperation.
+Repository for my hacked together scripts that I use for fantasy sports draf prep.
