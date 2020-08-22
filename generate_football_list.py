@@ -12,7 +12,7 @@ import sys
 import time
 import unidecode
 
-# Useful globals, curr_year determines which years stats are pulled
+# Useful globals, curr_year determines which year's stats are pulled
 # and total_players caps the player list to something useful for a 15 round draft.
 curr_year = 2020
 total_players = 500
@@ -23,13 +23,12 @@ qb_stat_labels = ["pass_cmp", "pass_yds", "pass_td", "pass_int"]
 player_list = []
 sorted_player_dict = {'RB':[], 'WR':[], 'TE':[], 'QB':[], 'K':[], 'DEF':[]}
 
-# Generic class to define a player when parsing stats
+# Generic class to define a player when parsing and storing stats
 class Player:
   def __init__ (self):
     self.name = ""
     self.team = ""
     self.position = ""
-    self.isDefense = False
     self.avg_pick = 0.0
     self.avg_round = 0.0
     self.pos_count = ""
@@ -70,12 +69,12 @@ class Player:
   def print_all(self):
     print("name: %s, avg pick: %.02f, avg round: %.02f, position: %s, pos count: %s" % (self.name, self.avg_pick, self.avg_round, self.position, self.pos_count))
 
-# Defenses are treated as aa special case so they have been given their own class.
+# Defenses are treated as a special case so they have been given their own class
+# instead of a child class of player.
 class Defense:
   def __init__ (self):
     self.name = ""
     self.team = ""
-    self.isDefense = True
     self.avg_pick = 0.0
     self.avg_round = 0.0
     self.pos_count = ""
@@ -112,7 +111,9 @@ class Defense:
     print("name: %s, avg pick: %.02f, avg round: %.02f, position: %s, pos count: %s" % (self.name, self.avg_pick, self.avg_round, self.position, self.pos_count))
 
 
-# Function that scrapes the players and their draft stats from the Yahoo Draft Analysis Page
+# Function that scrapes the players and their draft stats from the Yahoo Draft Analysis Page.
+# The webscraping here is entirely dependent on the 'table' element in the webpage that 
+# hasn't really changed, which allows this function to stay pretty stable.
 def Add_Yahoo_Stats():
   print "Adding Players from Yahoo"
   player_count = 0
@@ -155,10 +156,13 @@ def Add_Yahoo_Stats():
       if player_count == total_players:
         break
 
+    # An ad hoc way to get the next page of players in the table
     new_page = "https://football.fantasysports.yahoo.com/f1/draftanalysis?tab=SD&pos=ALL&sort=DA_AP&count={}".format(player_count)
 
-# Find a particular players entry on a Pro Football Reference webpage to find their individual webpage which
-# is stored in said element. Necessary as their naming convention isn't always regular.
+# This function is used to extract a specific player's PFR page ID from a general table of all players.
+# The table is searched for the target player using a specific element in each entry that is regular 
+# (ie omits things like "III" or "Jr" which aren't always consistent with Yahoo) and extracts the page
+# identifier from the same element.
 def Find_PFR_Entry(soup, target_name):
   split_name = target_name.split(" ")
   target_name = split_name[1] + "," + split_name[0]
@@ -174,7 +178,7 @@ def Find_PFR_Entry(soup, target_name):
         return pfr[0].find_all("a")
     return None
 
-# Function that scrapes RB stats a pro football reference
+# Function that scrapes RB stats a pro football reference based on the rushing stats page.
 def Add_RB_PFR_Stats():
   print "Adding RB PFR Data"
   rb_page = "https://www.pro-football-reference.com/years/"+ str(curr_year-1) + "/rushing.htm"
@@ -235,6 +239,14 @@ def Add_RB_PFR_Stats():
         if data[label][1] > comp_stats[label][1]:
           ranks[label][1] += 1
     player.set_pfr_ranks(ranks)
+
+  # Here three "stats" are calculated:
+  #   - Average points: (avg rush yard * 0.1) + (avg rec yards * 0.1) + (avg rec * 0.5) + (avg rush tds * 6)
+  #   - "Expected" points: Average points without the TDs to give a better idea of a general floor
+  #   - Point volatility: crude approximation of point volatility using standard deviation of each stat.
+  # Score values are based on our league rules, like 6 points for a rushing TD.
+  # Receiving yards are excluded because, in my opinion, they don't represent an important enough
+  # component of RB points week to week to be a difference maker when evaluating different players.
   print " Calulating expected points"
   num_dev = 1
   for player in sorted_player_dict["RB"]:
@@ -258,7 +270,7 @@ def Add_RB_PFR_Stats():
     avg_with_td = avg + (rush_td[0] * 6)
     player.set_points([avg_with_td, avg, abs(bad - good)])            
 
-# Function that scrapes WR or TE stats a pro football reference
+# Function that scrapes WR or TE stats a pro football reference based on the receiving stats page.
 def Add_Rec_PFR_Stats(receiver_type):
   print "Adding " + receiver_type + " PFR Data"
   wr_page = "https://www.pro-football-reference.com/years/" + str(curr_year-1) + "/receiving.htm"
@@ -294,6 +306,11 @@ def Add_Rec_PFR_Stats(receiver_type):
         wr_data_dict[label] = [0, 0]
     player.set_pfr_stats(wr_data_dict)
 
+  # Here three "stats" are calculated:
+  #   - Average points: (avg rec yards * 0.1) + (avg rec * 0.5) + (avg rec tds * 5)
+  #   - "Expected" points: Average points without the TDs to give a better idea of a general floor
+  #   - Point volatility: crude approximation of point volatility using standard deviation of each stat.
+  # Score values are based on our league rules, like 5 points for a receiving TD. 
   print " Calulating expected points"
   num_dev = 1
   for player in sorted_player_dict[receiver_type]:
@@ -313,7 +330,7 @@ def Add_Rec_PFR_Stats(receiver_type):
     avg_with_td = avg + (rec_td[0] * 5)
     player.set_points([avg_with_td, avg, abs(bad - good)])            
 
-# Function that scrapes QB stats a pro football reference
+# Function that scrapes QB stats a pro football reference based on the passing stats page.
 def Add_QB_PFR_Stats():
   print "Adding QB PFR Data"
   qb_page = "https://www.pro-football-reference.com/years/" + str(curr_year-1) + "/passing.htm"
@@ -349,6 +366,13 @@ def Add_QB_PFR_Stats():
         qb_data_dict[label] = [0, 0]
     player.set_pfr_stats(qb_data_dict)
 
+  # Here three "stats" are calculated:
+  #   - Average points: (avg pass completions * 0.25) + (avg pass yards * 0.04) + (avg pass tds * 4) - (avg ints * 2)
+  #   - "Expected" points: Average points without the TDs to give a better idea of a general floor
+  #   - Point volatility: crude approximation of point volatility using standard deviation of each stat.
+  # Score values are based on our league rules, like 4 points for a passing TD. 
+  # The total avg points aren't currently passed along as they are so volatile for QBs generally.
+  # Overall volatility is also very high for QBs relative to other positions, almost to the point of being useless.
   print " Calulating expected points"
   num_dev = 1
   for player in sorted_player_dict["QB"]:
@@ -397,14 +421,16 @@ def Add_DEF_DVOA():
       if def_stats[1].text == player.get_team():
         player.set_dvoa([def_stats[ovr_rank].text, def_stats[pass_rank].text, def_stats[run_rank].text])
 
-# Function that writes player list with stats to a CSV file in local directory
+# Function that writes player list with stats to a CSV file in local directory.
+# The "sort_type" parameter determines if players are listed by position or if its a raw list of all positions.
 def Write_CSV(sort_type):
   global player_list
   print "Starting CSV Write"
   headers = ["Name", "Team", "Avg Pick", "Avg Round", "Pos Rank"]
   curr_dir = os.getcwd()
   curr_time = time.time()
-  player_file = curr_dir + "/football_player_list_{}".format(curr_year) + "_" + str(int(curr_time)) + ".csv"
+  base_name = "football_raw_list_" if sort_type == 0 else "football_positional_analysis_"
+  player_file = curr_dir + "/" + base_name + "{}_".format(curr_year) + str(int(curr_time)) + ".csv"
   csvfile = open(player_file, "wb")
   file_writer = csv.writer(csvfile, delimiter=',')
   file_writer.writerow(headers)
@@ -480,6 +506,7 @@ def Write_CSV(sort_type):
   csvfile.close()
   print "File {} written.".format(player_file)
 
+# Function for if incorrect or "help" parameter is passed to the script
 def Print_Help():
   print "Permitted arguments for this script:"
   print "   > no arguments: generate unsorted list of players with stats"
